@@ -1,42 +1,58 @@
-import unittest
-from unittest.mock import patch, mock_open
-from rag_data_pipeline.read_pdfs import PDFReader
+from langchain_community.document_loaders import PyPDFLoader
+import re
+from typing import List, Optional
+
 from rag_data_pipeline.split_pdfs import Document
 
-class TestPDFReader(unittest.TestCase):
-    def setUp(self):
-        self.file_path = "/path/to/test.pdf"
-        self.pdf_reader = PDFReader(self.file_path)
 
-    def test_init(self):
-        self.assertEqual(self.pdf_reader.file_path, self.file_path)
-        self.assertIsInstance(self.pdf_reader.loader, PyPDFLoader)
-        self.assertIsNone(self.pdf_reader.documents)
+class PDFReader:
+    def __init__(self, file_path: str) -> None:
+        """
+        Initializes the PDFReader class.
 
-    @patch('rag_data_pipeline.read_pdfs.PyPDFLoader.load')
-    def test_read_pdf_with_documents(self, mock_load):
-        mock_documents = [
-            Document(page_content="This is a test document."),
-            Document(page_content="This is another test document.")
-        ]
-        mock_load.return_value = mock_documents
-        documents = self.pdf_reader.read_pdf()
-        self.assertIsNotNone(documents)
-        self.assertEqual(len(documents), 2)
-        self.assertEqual(documents[0].page_content, "This is a test document.")
-        self.assertEqual(documents[1].page_content, "This is another test document.")
+        Args:
+            file_path (str): The file path of the PDF document.
+        """
+        self.file_path = file_path
+        self.loader = PyPDFLoader(self.file_path)
+        self.documents = None
 
-    @patch('rag_data_pipeline.read_pdfs.PyPDFLoader.load')
-    def test_read_pdf_with_no_documents(self, mock_load):
-        mock_load.return_value = []
-        documents = self.pdf_reader.read_pdf()
-        self.assertIsNone(documents)
+    def clean_text(self, text: str) -> str:
+        """
+        Cleans up the given text by removing extra whitespace, numbers, and header/footer lines.
+        
+        Args:
+            text (str): The text to be cleaned.
+        
+        Returns:
+            str: The cleaned text.
+        """
+        # Normalize whitespace 
+        cleaned_text = re.sub(r'\s+', ' ', text)
+        # Remove html tags
+        cleaned_text = re.sub(r'<.*?>', '', cleaned_text)
+        # remove header and footers
+        cleaned_text = re.sub(r'^\w+\s\d+$', '', cleaned_text, flags=re.MULTILINE)
+        # Remove Special Character 
+        cleaned_text = re.sub(r'[●•◆]', '', cleaned_text)
+        # Keep only alphanumeric characters and some punctuation
+        cleaned_text = re.sub(r'[^a-zA-Z0-9,.?!;:\'\"()\s]', '', cleaned_text)
+        return cleaned_text.strip()
 
-    def test_clean_text(self):
-        test_text = "   This is a test document.   \n\n123 Header\nFooter 456\n●•◆ Test ◆•● "
-        expected_text = "This is a test document. Test"
-        cleaned_text = self.pdf_reader.clean_text(test_text)
-        self.assertEqual(cleaned_text, expected_text)
 
-if __name__ == '__main__':
-    unittest.main()
+    def read_pdf(self) -> Optional[List[Document]]:
+        """
+        Reads the PDF document and returns the cleaned text.
+
+        Returns:
+            Optional[List[Document]]: The list of documents loaded from the PDF, or None if no documents were loaded.
+        """
+        self.documents = self.loader.load()
+        if self.documents:
+            print(f"Loaded {len(self.documents)} document(s) from the PDF.")
+            for doc in self.documents:
+                doc.page_content = self.clean_text(doc.page_content)
+            print(f"First document content preview: {self.documents[0].page_content[:500]}")
+        else:
+            print("No documents loaded.")
+        return self.documents
